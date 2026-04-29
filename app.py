@@ -1,23 +1,14 @@
 import os
 import io
-import gradio as gr
+import streamlit as st
 import PyPDF2
 import docx
 import google.generativeai as genai
 
-# ============================================================
-# 1. LOAD GEMINI API KEY
-# ============================================================
-
-# In Colab, set:
-# os.environ["GEMINI_API_KEY"] = userdata.get("GEMINI_API_KEY")
-
+# -----------------------------------------------------------
+# 1. Configure Gemini
+# -----------------------------------------------------------
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
-
-# ============================================================
-# 2. LLM CALL FUNCTION (Gemini 1.5 Flash)
-# ============================================================
 
 def call_llm(prompt, temperature=0.3):
     model = genai.GenerativeModel("gemini-1.5-flash")
@@ -25,10 +16,9 @@ def call_llm(prompt, temperature=0.3):
     return response.text
 
 
-# ============================================================
-# 3. FILE PARSING HELPERS
-# ============================================================
-
+# -----------------------------------------------------------
+# 2. File parsing helpers
+# -----------------------------------------------------------
 def extract_text_from_pdf(file_obj):
     reader = PyPDF2.PdfReader(file_obj)
     text = ""
@@ -38,21 +28,16 @@ def extract_text_from_pdf(file_obj):
             text += extracted + "\n"
     return text
 
-
 def extract_text_from_docx(file_obj):
     doc = docx.Document(file_obj)
     return "\n".join(p.text for p in doc.paragraphs)
-
 
 def extract_text(uploaded_file):
     if uploaded_file is None:
         return ""
 
     filename = uploaded_file.name.lower()
-
-    with open(uploaded_file.name, "rb") as f:
-        data = f.read()
-
+    data = uploaded_file.read()
     file_obj = io.BytesIO(data)
 
     if filename.endswith(".pdf"):
@@ -63,24 +48,17 @@ def extract_text(uploaded_file):
         return data.decode("utf-8", errors="ignore")
 
 
-# ============================================================
-# 4. MAIN PIPELINE: ANALYSIS → TAILORED RESUME → COVER LETTER
-# ============================================================
-
-def process_resume_and_jd(resume_file, jd_file):
+# -----------------------------------------------------------
+# 3. Main pipeline
+# -----------------------------------------------------------
+def process(resume_file, jd_file):
     if resume_file is None or jd_file is None:
-        return (
-            "⚠️ Please upload both resume and job description.",
-            "",
-            "",
-        )
+        return "Please upload both files.", "", ""
 
     resume_text = extract_text(resume_file)
     jd_text = extract_text(jd_file)
 
-    # --------------------------------------------------------
-    # A. Recruiter Analysis
-    # --------------------------------------------------------
+    # A. Recruiter analysis
     analysis_prompt = f"""
 You are a senior technical recruiter.
 
@@ -91,112 +69,64 @@ CANDIDATE RESUME:
 \"\"\"{resume_text}\"\"\"
 
 Tasks:
-- Give an overall MATCH SCORE from 0 to 100.
-- Provide a short justification.
-- List KEY STRENGTHS.
-- List SKILL / EXPERIENCE GAPS.
-- Provide 5–10 resume improvement suggestions.
-
-Format:
-
-MATCH SCORE: <number>/100
-
-JUSTIFICATION:
-- ...
-
-STRENGTHS:
-- ...
-
-GAPS:
-- ...
-
-RECOMMENDED IMPROVEMENTS:
-- ...
+- Give a MATCH SCORE (0–100)
+- Provide justification
+- List strengths
+- List gaps
+- Suggest improvements
 """
     analysis = call_llm(analysis_prompt)
 
-    # --------------------------------------------------------
-    # B. Tailored Resume
-    # --------------------------------------------------------
-    tailored_resume_prompt = f"""
-You are a senior recruiter and resume writer.
+    # B. Tailored resume
+    resume_prompt = f"""
+Rewrite the resume to align with the job description.
+Do NOT invent experience.
+Output ATS‑friendly sections.
 
 JOB DESCRIPTION:
 \"\"\"{jd_text}\"\"\"
 
 ORIGINAL RESUME:
 \"\"\"{resume_text}\"\"\"
-
-Rewrite the resume so it aligns strongly with the job description.
-Rules:
-- Do NOT invent fake experience.
-- You may reorganize, rephrase, emphasize relevant skills.
-- Remove irrelevant details.
-- Output an ATS‑friendly resume with sections:
-  SUMMARY, SKILLS, EXPERIENCE, EDUCATION, PROJECTS (optional)
-
-Output only the rewritten resume.
 """
-    tailored_resume = call_llm(tailored_resume_prompt)
+    tailored_resume = call_llm(resume_prompt)
 
-    # --------------------------------------------------------
-    # C. Cover Letter
-    # --------------------------------------------------------
-    cover_letter_prompt = f"""
-You are a senior recruiter and expert cover letter writer.
+    # C. Cover letter
+    cover_prompt = f"""
+Write a professional cover letter based on:
 
 JOB DESCRIPTION:
 \"\"\"{jd_text}\"\"\"
 
 TAILORED RESUME:
 \"\"\"{tailored_resume}\"\"\"
-
-Write a professional one‑page cover letter:
-- Address to "Dear Hiring Manager,"
-- Highlight the most relevant strengths
-- Do not repeat the resume line‑by‑line
-- Use a confident, natural tone
-
-Output only the cover letter.
 """
-    cover_letter = call_llm(cover_letter_prompt)
+    cover_letter = call_llm(cover_prompt)
 
     return analysis, tailored_resume, cover_letter
 
 
-# ============================================================
-# 5. GRADIO UI
-# ============================================================
+# -----------------------------------------------------------
+# 4. Streamlit UI
+# -----------------------------------------------------------
+st.title("📄 Resume–Job Match Assistant (Gemini)")
 
-with gr.Blocks(title="Resume–Job Match Assistant (Gemini)") as demo:
-    gr.Markdown(
-        """
-# 🔍 Resume–Job Match Assistant  
-Powered by **Google Gemini 1.5 Flash**
+st.write("Upload your resume and job description to generate:")
+st.write("- Recruiter analysis")
+st.write("- Tailored resume")
+st.write("- Cover letter")
 
-Upload your **resume** and **job description**.  
-The system will:
-- Analyze match as a **senior recruiter**
-- Generate a **tailored resume**
-- Create a **custom cover letter**
-        """
-    )
+resume_file = st.file_uploader("Upload Resume (PDF/DOCX/TXT)")
+jd_file = st.file_uploader("Upload Job Description (PDF/DOCX/TXT)")
 
-    with gr.Row():
-        resume_input = gr.File(label="Upload Resume (PDF/DOCX/TXT)")
-        jd_input = gr.File(label="Upload Job Description (PDF/DOCX/TXT)")
+if st.button("🚀 Analyze & Generate"):
+    analysis, tailored_resume, cover_letter = process(resume_file, jd_file)
 
-    run_button = gr.Button("🚀 Analyze & Generate")
+    st.subheader("🔍 Recruiter Analysis")
+    st.write(analysis)
 
-    analysis_output = gr.Markdown(label="Recruiter Analysis")
-    tailored_resume_output = gr.Textbox(label="Tailored Resume", lines=20)
-    cover_letter_output = gr.Textbox(label="Cover Letter", lines=20)
+    st.subheader("📝 Tailored Resume")
+    st.text_area("", tailored_resume, height=300)
 
-    run_button.click(
-        fn=process_resume_and_jd,
-        inputs=[resume_input, jd_input],
-        outputs=[analysis_output, tailored_resume_output, cover_letter_output],
-    )
-
-if __name__ == "__main__":
-    demo.launch(share=True)
+    st.subheader("✉️ Cover Letter")
+    st.text_area("", cover_letter, height=300)
