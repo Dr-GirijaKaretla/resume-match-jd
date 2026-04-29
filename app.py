@@ -3,29 +3,26 @@ import io
 import gradio as gr
 import PyPDF2
 import docx
-from groq import Groq
+import google.generativeai as genai
 
 # ============================================================
-# 1. LOAD API KEY (Colab Secrets or Environment Variable)
+# 1. LOAD GEMINI API KEY
 # ============================================================
 
-# In Colab, you will set:
-# os.environ["GROQ_API_KEY"] = userdata.get("GROQ_API_KEY")
+# In Colab, set:
+# os.environ["GEMINI_API_KEY"] = userdata.get("GEMINI_API_KEY")
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 
 # ============================================================
-# 2. LLM CALL FUNCTION (Groq – Llama3‑70B)
+# 2. LLM CALL FUNCTION (Gemini 1.5 Flash)
 # ============================================================
 
 def call_llm(prompt, temperature=0.3):
-    response = client.chat.completions.create(
-        model="llama3-70b-8192",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=temperature,
-    )
-    return response.choices[0].message.content
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    response = model.generate_content(prompt)
+    return response.text
 
 
 # ============================================================
@@ -171,11 +168,11 @@ Output only the cover letter.
 # 5. GRADIO UI
 # ============================================================
 
-with gr.Blocks(title="Resume–Job Match Assistant (Groq)") as demo:
+with gr.Blocks(title="Resume–Job Match Assistant (Gemini)") as demo:
     gr.Markdown(
         """
 # 🔍 Resume–Job Match Assistant  
-Powered by **Groq Llama3‑70B**
+Powered by **Google Gemini 1.5 Flash**
 
 Upload your **resume** and **job description**.  
 The system will:
